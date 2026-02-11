@@ -1,6 +1,5 @@
 def greet_person(name):
 
-
-print("hello",name)
+print("hello", )
 
 greet_person("alice")

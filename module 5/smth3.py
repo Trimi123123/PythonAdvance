@@ -7,12 +7,12 @@ def greet(name):
     global message
 
     message = f"hello,{greeting}, {name}"
-    print(message)
+
+print(message)
 
 greet("bob")
 print(message)
 
-def
 
 
 
