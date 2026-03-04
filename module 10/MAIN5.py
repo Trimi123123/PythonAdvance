@@ -5,7 +5,7 @@ class DigitalSchool:
         self.__state = state
         self.__courses = courses
 
-    # Name property
+
     @property
     def name(self):
         return self.__name
@@ -14,7 +14,6 @@ class DigitalSchool:
     def name(self, value):
         self.__name = value
 
-    # City property
     @property
     def city(self):
         return self.__city
@@ -23,7 +22,7 @@ class DigitalSchool:
     def city(self, value):
         self.__city = value
 
-    # State property
+
     @property
     def state(self):
         return self.__state
@@ -32,7 +31,7 @@ class DigitalSchool:
     def state(self, value):
         self.__state = value
 
-    # Courses property
+
     @property
     def courses(self):
         return self.__courses
@@ -73,9 +72,7 @@ class DS_Prishtina(DigitalSchool):
         print("DS_Prishtina is organizing a 24-hour coding hackathon for all students!")
 
 
-# Example Usage
 
-# a. Create instance
 ds_prishtina = DS_Prishtina(
     name="Digital School Prishtina",
     city="Prishtina",
@@ -84,13 +81,13 @@ ds_prishtina = DS_Prishtina(
     student_number=350
 )
 
-# b. Call methods
+
 ds_prishtina.SCF()
 ds_prishtina.organize_hackathon()
 
-# c. Access student_number
 print(f"The number of students in DS_Prishtina is {ds_prishtina.student_number}")
 
-# Optional: Show school info
+
 print(ds_prishtina.show_school_info())
+
 
