@@ -1,16 +1,18 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
+from fastapi import FastAPI
+from pydantic import BaseModel
 
-# =========================
-# DATABASE CONNECTION
-# =========================
+
+
+api = FastAPI()
+
+
+
 conn = sqlite3.connect("recipes.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# =========================
-# CREATE TABLES
-# =========================
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,128 +33,178 @@ CREATE TABLE IF NOT EXISTS recipes (
 
 conn.commit()
 
-# =========================
-# APP TITLE
-# =========================
-st.title("Online Recipe Book")
 
-# =========================
-# SIDEBAR MENU
-# =========================
-menu = st.sidebar.selectbox(
-    "Menu",
-    ["View Recipes", "Add Recipe", "Add Category"]
-)
 
-# =========================
-# VIEW RECIPES
-# =========================
-if menu == "View Recipes":
+class Category(BaseModel):
+    name: str
 
-    st.header("Recipes")
 
+class Recipe(BaseModel):
+    name: str
+    ingredients: str
+    cooking_time: int
+    category_id: int
+
+
+@api.get("/categories")
+def get_categories():
+    cursor.execute("SELECT * FROM categories")
+    rows = cursor.fetchall()
+
+    result = []
+    for row in rows:
+        result.append({
+            "id": row[0],
+            "name": row[1]
+        })
+
+    return result
+
+
+@api.post("/categories")
+def add_category(category: Category):
+    cursor.execute(
+        "INSERT INTO categories (name) VALUES (?)",
+        (category.name,)
+    )
+    conn.commit()
+    return {"message": "Category added successfully"}
+
+
+@api.get("/recipes")
+def get_recipes():
     query = """
     SELECT
-        recipes.name AS Recipe,
-        recipes.ingredients AS Ingredients,
-        recipes.cooking_time AS Cooking_Time,
-        categories.name AS Category
+        recipes.name,
+        recipes.ingredients,
+        recipes.cooking_time,
+        categories.name
     FROM recipes
     LEFT JOIN categories
     ON recipes.category_id = categories.id
     """
 
-    df = pd.read_sql_query(query, conn)
+    cursor.execute(query)
+    rows = cursor.fetchall()
 
-    if not df.empty:
+    result = []
+    for row in rows:
+        result.append({
+            "Recipe": row[0],
+            "Ingredients": row[1],
+            "Cooking Time": row[2],
+            "Category": row[3]
+        })
+
+    return result
+
+
+@api.post("/recipes")
+def add_recipe(recipe: Recipe):
+    cursor.execute("""
+    INSERT INTO recipes
+    (name, ingredients, cooking_time, category_id)
+    VALUES (?, ?, ?, ?)
+    """, (
+        recipe.name,
+        recipe.ingredients,
+        recipe.cooking_time,
+        recipe.category_id
+    ))
+
+    conn.commit()
+
+    return {"message": "Recipe added successfully"}
+
+
+st.title("Online Recipe Book")
+
+menu_choice = st.sidebar.selectbox(
+    "Menu",
+    ["View Recipes", "Add Recipe", "Add Category"]
+)
+
+
+if menu_choice == "View Recipes":
+
+    st.header("Recipes")
+
+    recipes_data = get_recipes()
+
+    if recipes_data:
+        df = pd.DataFrame(recipes_data)
         st.dataframe(df)
     else:
         st.info("No recipes available")
 
-# =========================
-# ADD CATEGORY
-# =========================
-elif menu == "Add Category":
+
+elif menu_choice == "Add Category":
 
     st.header("Add Category")
 
-    category = st.text_input("Category Name")
+    category_name_input = st.text_input("Category Name")
 
     if st.button("Add Category"):
 
-        if category.strip() == "":
+        if category_name_input.strip() == "":
             st.warning("Please enter a category name")
 
         else:
-            cursor.execute(
-                "INSERT INTO categories (name) VALUES (?)",
-                (category,)
-            )
-
-            conn.commit()
-
+            new_category = Category(name=category_name_input)
+            add_category(new_category)
             st.success("Category added successfully")
 
-# =========================
-# ADD RECIPE
-# =========================
-elif menu == "Add Recipe":
+
+
+elif menu_choice == "Add Recipe":
 
     st.header("Add Recipe")
 
-    name = st.text_input("Recipe Name")
+    recipe_name_input = st.text_input("Recipe Name")
+    ingredients_input = st.text_area("Ingredients")
 
-    ingredients = st.text_area("Ingredients")
-
-    cooking_time = st.number_input(
+    cooking_time_input = st.number_input(
         "Cooking Time (minutes)",
         min_value=1,
         step=1
     )
 
-    # GET CATEGORIES FROM DATABASE
-    cursor.execute("SELECT * FROM categories")
-    categories = cursor.fetchall()
+    categories_data = get_categories()
 
-    if categories:
+    if categories_data:
 
-        category_names = [category[1] for category in categories]
+        category_names_list = []
+        for cat_item in categories_data:
+            category_names_list.append(cat_item["name"])
 
-        selected_category = st.selectbox(
+        selected_category_name = st.selectbox(
             "Select Category",
-            category_names
+            category_names_list
         )
 
         if st.button("Add Recipe"):
 
-            if name.strip() == "" or ingredients.strip() == "":
+            if recipe_name_input.strip() == "" or ingredients_input.strip() == "":
                 st.warning("Please fill all fields")
 
             else:
 
-                # FIND CATEGORY ID
-                category_id = None
+                selected_category_id = None
 
-                for category in categories:
-                    if category[1] == selected_category:
-                        category_id = category[0]
+                for cat_item in categories_data:
+                    if cat_item["name"] == selected_category_name:
+                        selected_category_id = cat_item["id"]
 
-                # INSERT RECIPE
-                cursor.execute("""
-                INSERT INTO recipes
-                (name, ingredients, cooking_time, category_id)
-                VALUES (?, ?, ?, ?)
-                """, (
-                    name,
-                    ingredients,
-                    cooking_time,
-                    category_id
-                ))
+                new_recipe = Recipe(
+                    name=recipe_name_input,
+                    ingredients=ingredients_input,
+                    cooking_time=int(cooking_time_input),
+                    category_id=selected_category_id
+                )
 
-                conn.commit()
+                add_recipe(new_recipe)
 
                 st.success("Recipe added successfully")
 
     else:
         st.warning("Please add a category first")
-
