@@ -1,52 +1,87 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List
+from typing import Dict
 
-app = FastAPI(title="Book Management API")
+app = FastAPI(title="Country Population Manager API")
 
-class Book(BaseModel):
-    id: int
-    title: str
-    author: str
-    price: float
+# ---------------- DATA ----------------
+countries: Dict[str, int] = {
+    "Kosovo": 1800000,
+    "Albania": 2800000,
+    "Germany": 84000000,
+    "USA": 331000000
+}
 
-books = []
+# ---------------- MODEL ----------------
+class Country(BaseModel):
+    name: str
+    population: int
 
+
+# ---------------- ROOT ----------------
 @app.get("/")
-def home():
-    return {"message": "Book Management API Running"}
+def root():
+    return {"message": "Country Population Manager API is running"}
 
-@app.get("/books", response_model=List[Book])
-def get_books():
-    return books
 
-@app.post("/books")
-def add_book(book: Book):
-    for b in books:
-        if b.id == book.id:
-            raise HTTPException(status_code=400, detail="Book ID already exists")
-    books.append(book)
-    return {"message": "Book added successfully"}
+# ---------------- GET COUNTRIES ----------------
+@app.get("/countries")
+def get_countries():
+    return countries
 
-@app.get("/books/{book_id}")
-def get_book(book_id: int):
-    for book in books:
-        if book.id == book_id:
-            return book
-    raise HTTPException(status_code=404, detail="Book not found")
 
-@app.put("/books/{book_id}")
-def update_book(book_id: int, updated_book: Book):
-    for index, book in enumerate(books):
-        if book.id == book_id:
-            books[index] = updated_book
-            return {"message": "Book updated"}
-    raise HTTPException(status_code=404, detail="Book not found")
+# ---------------- STATS (FIXED) ----------------
+@app.get("/stats")
+def get_stats():
+    values = list(countries.values())
 
-@app.delete("/books/{book_id}")
-def delete_book(book_id: int):
-    for index, book in enumerate(books):
-        if book.id == book_id:
-            books.pop(index)
-            return {"message": "Book deleted"}
-    raise HTTPException(status_code=404, detail="Book not found")
+    if len(values) == 0:
+        return {
+            "total_countries": 0,
+            "max_population": 0,
+            "min_population": 0,
+            "average_population": 0
+        }
+
+    return {
+        "total_countries": len(countries),
+        "max_population": max(values),
+        "min_population": min(values),
+        "average_population": sum(values) // len(values)
+    }
+
+
+# ---------------- ADD ----------------
+@app.post("/countries")
+def add_country(country: Country):
+    name = country.name.strip().title()
+
+    if name in countries:
+        raise HTTPException(status_code=400, detail="Country already exists")
+
+    countries[name] = country.population
+    return {"message": f"{name} added successfully"}
+
+
+# ---------------- UPDATE ----------------
+@app.put("/countries/{country_name}")
+def update_country(country_name: str, population: int):
+    name = country_name.strip().title()
+
+    if name not in countries:
+        raise HTTPException(status_code=404, detail="Country not found")
+
+    countries[name] = population
+    return {"message": f"{name} updated successfully"}
+
+
+# ---------------- DELETE ----------------
+@app.delete("/countries/{country_name}")
+def delete_country(country_name: str):
+    name = country_name.strip().title()
+
+    if name not in countries:
+        raise HTTPException(status_code=404, detail="Country not found")
+
+    del countries[name]
+    return {"message": f"{name} deleted successfully"}
