@@ -2,86 +2,201 @@ import streamlit as st
 import requests
 
 API_URL = "http://127.0.0.1:8000"
+st.set_page_config(page_title="Country Intelligence Hub", layout="wide")
+st.title("🌍 Country Intelligence Hub")
 
-st.set_page_config(page_title="Country Population Manager", layout="wide")
 
-st.title("🌍 Country Population Manager")
-st.caption("A simple full-stack CRUD dashboard using FastAPI + Streamlit")
+# ----------------- NETWORK WRAPPERS -----------------
+def safe_request(method, endpoint, payload=None):
+    try:
+        url = f"{API_URL}{endpoint}"
+        if method == "GET":
+            res = requests.get(url, timeout=5)
+        elif method == "POST":
+            res = requests.post(url, json=payload, timeout=5)
+        elif method == "PUT":
+            res = requests.put(url, json=payload, timeout=5)
+        elif method == "DELETE":
+            res = requests.delete(url, timeout=5)
+        return res, None
+    except requests.exceptions.RequestException as e:
+        return None, str(e)
 
-# ---------------- SAFE STATS ----------------
-stats_response = requests.get(f"{API_URL}/stats")
 
-if stats_response.status_code == 200:
-    stats = stats_response.json()
-else:
-    stats = {
-        "total_countries": 0,
-        "max_population": 0,
-        "min_population": 0,
-        "average_population": 0
-    }
+# ----------------- DATA LOADING -----------------
+stats_res, stats_err = safe_request("GET", "/stats")
+stats = stats_res.json() if (stats_res and stats_res.status_code == 200) else {
+    "total_countries": 0, "max_population": 0, "min_population": 0, "average_population": 0, "total_population": 0
+}
 
-# ---------------- STATS UI ----------------
-st.subheader("📊 Global Statistics")
+countries_res, countries_err = safe_request("GET", "/countries")
+countries_list = countries_res.json() if (countries_res and countries_res.status_code == 200) else []
 
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric("Total Countries", stats.get("total_countries", 0))
-col2.metric("Max Population", stats.get("max_population", 0))
-col3.metric("Min Population", stats.get("min_population", 0))
-col4.metric("Average Population", stats.get("average_population", 0))
-
+# ----------------- GLOBAL STATS KPI -----------------
+st.subheader("📊 Network Summary")
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("Total Countries", stats.get("total_countries", 0))
+c2.metric("Max Population", f"{stats.get('max_population', 0):,}")
+c3.metric("Min Population", f"{stats.get('min_population', 0):,}")
+c4.metric("Avg Population", f"{stats.get('average_population', 0):,}")
+c5.metric("Global Population", f"{stats.get('total_population', 0):,}")
 st.divider()
 
-# ---------------- COUNTRIES ----------------
-st.subheader("🌐 Countries List")
+# ----------------- SIDEBAR CONTROLS -----------------
+st.sidebar.header("🔍 Directory Filters")
+search_query = st.sidebar.text_input("Search Country by Name").strip().lower()
 
-data = requests.get(f"{API_URL}/countries").json()
+continents = sorted(list({c['continent'] for c in countries_list if c.get('continent')}))
+selected_continent = st.sidebar.selectbox("Filter by Continent", ["All"] + continents)
 
-for country, pop in data.items():
-    st.write(f"**{country}** → {pop:,}")
+# Apply Filter Execution
+filtered_countries = countries_list
+if search_query:
+    filtered_countries = [c for c in filtered_countries if search_query in c['name'].lower()]
+if selected_continent != "All":
+    filtered_countries = [c for c in filtered_countries if c.get('continent') == selected_continent]
 
-st.divider()
+# ----------------- MAIN INTERFACE TABS -----------------
+tab_view, tab_add, tab_update, tab_delete = st.tabs([
+    "📋 View Directory", "➕ Add Record", "✏️ Edit Record", "🗑️ Remove Record"
+])
 
-# ---------------- ADD ----------------
-st.subheader("➕ Add Country")
+# --- TAB 1: VIEW RECORDS ---
+with tab_view:
+    st.subheader("Country Metadata Cards")
+    if not filtered_countries:
+        st.info("No records match your query filters.")
+    else:
+        for c in filtered_countries:
+            with st.expander(f"📌 {c['name']} (Pop: {c['population']:,})"):
+                col_left, col_right = st.columns(2)
+                with col_left:
+                    st.write(f"**Capital:** {c.get('capital') or 'N/A'}")
+                    st.write(f"**Continent:** {c.get('continent') or 'N/A'}")
+                    st.write(f"**Region:** {c.get('region') or 'N/A'}")
+                    st.write(f"**ISO Code:** {c.get('iso_code') or 'N/A'}")
+                with col_right:
+                    area = c.get('area_km2')
+                    gdp = c.get('gdp_usd')
+                    st.write(f"**Area:** {f'{area:,} km²' if area else 'N/A'}")
+                    st.write(f"**GDP:** {f'${gdp:,.2f}' if gdp else 'N/A'}")
+                    st.write(f"**Currency:** {c.get('currency') or 'N/A'}")
+                    st.write(f"**Independence Year:** {c.get('independence_year') or 'N/A'}")
 
-name = st.text_input("Country Name")
-population = st.number_input("Population", min_value=0, step=1000)
+# --- TAB 2: ADD RECORD ---
+with tab_add:
+    st.subheader("Insert New Country to Database")
+    with st.form("add_form", clear_on_submit=True):
+        a_name = st.text_input("Country Name *")
+        a_pop = st.number_input("Population *", min_value=0, value=0, step=1000)
 
-if st.button("Add Country"):
-    if name:
-        requests.post(
-            f"{API_URL}/countries",
-            json={"name": name, "population": int(population)}
-        )
-        st.success("Country added")
-        st.rerun()
+        col_a, col_b = st.columns(2)
+        with col_a:
+            a_cap = st.text_input("Capital")
+            a_reg = st.text_input("Region")
+            a_area = st.number_input("Area (km²)", min_value=0.0, value=0.0, step=10.0)
+            a_gdp = st.number_input("GDP (USD)", min_value=0.0, value=0.0, step=1000000.0)
+        with col_b:
+            a_curr = st.text_input("Currency (e.g., USD, EUR)")
+            a_iso = st.text_input("ISO alpha-3 Code")
+            a_cont = st.text_input("Continent")
+            a_ind = st.number_input("Independence Year", min_value=0, max_value=2026, value=0, step=1)
 
-st.divider()
+        submitted = st.form_submit_button("Commit Entry")
+        if submitted:
+            if not a_name.strip():
+                st.error("Country Name is a mandatory field.")
+            else:
+                payload = {
+                    "name": a_name, "population": int(a_pop),
+                    "capital": a_cap or None, "region": a_reg or None,
+                    "area_km2": float(a_area) if a_area > 0 else None,
+                    "gdp_usd": float(a_gdp) if a_gdp > 0 else None,
+                    "currency": a_curr or None, "iso_code": a_iso or None,
+                    "continent": a_cont or None, "independence_year": int(a_ind) if a_ind > 0 else None
+                }
+                res, err = safe_request("POST", "/countries", payload)
+                if err:
+                    st.error(f"Network error: {err}")
+                elif res.status_code == 200:
+                    st.success(res.json()["message"])
+                    st.rerun()
+                else:
+                    st.error(res.json().get("detail", "Error handling record initialization."))
 
-# ---------------- UPDATE ----------------
-st.subheader("✏️ Update Country")
+# --- TAB 3: EDIT RECORD ---
+with tab_update:
+    st.subheader("Modify Existing Record Elements")
+    country_names = [c["name"] for c in countries_list]
 
-u_name = st.text_input("Country to Update")
-u_pop = st.number_input("New Population", min_value=0, step=1000, key="update")
+    if not country_names:
+        st.info("No records available to mutate.")
+    else:
+        target_country = st.selectbox("Select Target Country to Update", country_names)
+        # Fetch the historical values to pre-populate or track changes
+        current_data = next(item for item in countries_list if item["name"] == target_country)
 
-if st.button("Update Country"):
-    requests.put(
-        f"{API_URL}/countries/{u_name}",
-        params={"population": int(u_pop)}
-    )
-    st.success("Updated")
-    st.rerun()
+        st.info(
+            f"Modifying fields for **{target_country}**. Leave inputs blank or at 0 if you do not want to change them.")
 
-st.divider()
+        with st.form("update_form"):
+            u_pop = st.number_input("New Population", min_value=0, value=int(current_data['population']), step=1000)
 
-# ---------------- DELETE ----------------
-st.subheader("🗑️ Delete Country")
+            col_u1, col_u2 = st.columns(2)
+            with col_u1:
+                u_cap = st.text_input("Update Capital", value=current_data.get('capital') or "")
+                u_reg = st.text_input("Update Region", value=current_data.get('region') or "")
+                u_area = st.number_input("Update Area (km²)", min_value=0.0,
+                                         value=float(current_data.get('area_km2') or 0.0))
+            with col_u2:
+                u_gdp = st.number_input("Update GDP (USD)", min_value=0.0,
+                                        value=float(current_data.get('gdp_usd') or 0.0))
+                u_curr = st.text_input("Update Currency", value=current_data.get('currency') or "")
+                u_cont = st.text_input("Update Continent", value=current_data.get('continent') or "")
 
-d_name = st.text_input("Country to Delete")
+            update_submitted = st.form_submit_button("Push Update Payload")
+            if update_submitted:
+                # Only include elements targeted for updates
+                payload = {
+                    "population": int(u_pop),
+                    "capital": u_cap or None,
+                    "region": u_reg or None,
+                    "area_km2": float(u_area) if u_area > 0 else None,
+                    "gdp_usd": float(u_gdp) if u_gdp > 0 else None,
+                    "currency": u_curr or None,
+                    "continent": u_cont or None
+                }
+                res, err = safe_request("PUT", f"/countries/{target_country}", payload)
+                if err:
+                    st.error(f"Network error: {err}")
+                elif res.status_code == 200:
+                    st.success(res.json()["message"])
+                    st.rerun()
+                else:
+                    st.error(res.json().get("detail", "Error compiling structural layout update."))
 
-if st.button("Delete Country"):
-    requests.delete(f"{API_URL}/countries/{d_name}")
-    st.warning("Deleted")
-    st.rerun()
+# --- TAB 4: REMOVE RECORD ---
+with tab_delete:
+    st.subheader("Drop Country From System")
+    country_names = [c["name"] for c in countries_list]
+
+    if not country_names:
+        st.info("No records left to remove.")
+    else:
+        drop_target = st.selectbox("Select Target Country to Purge", country_names, key="delete_box")
+        st.warning(f"Warning: This action completely removes **{drop_target}** from the persistent database context.")
+
+        confirm_check = st.checkbox(f"I confirm I want to drop {drop_target}")
+
+        if st.button("Execute Drop Sequence"):
+            if confirm_check:
+                res, err = safe_request("DELETE", f"/countries/{drop_target}")
+                if err:
+                    st.error(f"Network error: {err}")
+                elif res.status_code == 200:
+                    st.success(res.json()["message"])
+                    st.rerun()
+                else:
+                    st.error(res.json().get("detail", "Error resolving extraction call context."))
+            else:
+                st.error("Please assert safety confirmation checks prior to clearing records.")

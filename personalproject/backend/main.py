@@ -1,87 +1,152 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Dict
+from pydantic import BaseModel, Field
+from typing import Optional
+import sqlite3
 
 app = FastAPI(title="Country Population Manager API")
-
-# ---------------- DATA ----------------
-countries: Dict[str, int] = {
-    "Kosovo": 1800000,
-    "Albania": 2800000,
-    "Germany": 84000000,
-    "USA": 331000000
-}
-
-# ---------------- MODEL ----------------
-class Country(BaseModel):
-    name: str
-    population: int
+DB_NAME = "countries.db"
 
 
-# ---------------- ROOT ----------------
+def get_connection():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def normalize_name(name: str) -> str:
+    return name.strip().title()
+
+
+class CountryCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    population: int = Field(..., ge=0)
+    capital: Optional[str] = None
+    region: Optional[str] = None
+    area_km2: Optional[float] = Field(None, ge=0)
+    gdp_usd: Optional[float] = Field(None, ge=0)
+    currency: Optional[str] = None
+    iso_code: Optional[str] = None
+    continent: Optional[str] = None
+    independence_year: Optional[int] = None
+
+
+class CountryUpdate(BaseModel):
+    population: Optional[int] = Field(None, ge=0)
+    capital: Optional[str] = None
+    region: Optional[str] = None
+    area_km2: Optional[float] = Field(None, ge=0)
+    gdp_usd: Optional[float] = Field(None, ge=0)
+    currency: Optional[str] = None
+    iso_code: Optional[str] = None
+    continent: Optional[str] = None
+    independence_year: Optional[int] = None
+
+
 @app.get("/")
 def root():
     return {"message": "Country Population Manager API is running"}
 
 
-# ---------------- GET COUNTRIES ----------------
 @app.get("/countries")
 def get_countries():
-    return countries
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM countries ORDER BY name")
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 
-# ---------------- STATS (FIXED) ----------------
 @app.get("/stats")
 def get_stats():
-    values = list(countries.values())
-
-    if len(values) == 0:
-        return {
-            "total_countries": 0,
-            "max_population": 0,
-            "min_population": 0,
-            "average_population": 0
-        }
-
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT 
+            COUNT(*) as total_countries,
+            COALESCE(MAX(population), 0) as max_population,
+            COALESCE(MIN(population), 0) as min_population,
+            COALESCE(AVG(population), 0) as average_population,
+            COALESCE(SUM(population), 0) as total_population
+        FROM countries
+    """)
+    row = cur.fetchone()
+    conn.close()
     return {
-        "total_countries": len(countries),
-        "max_population": max(values),
-        "min_population": min(values),
-        "average_population": sum(values) // len(values)
+        "total_countries": row["total_countries"],
+        "max_population": row["max_population"],
+        "min_population": row["min_population"],
+        "average_population": int(row["average_population"]),
+        "total_population": row["total_population"],
     }
 
 
-# ---------------- ADD ----------------
 @app.post("/countries")
-def add_country(country: Country):
-    name = country.name.strip().title()
-
-    if name in countries:
-        raise HTTPException(status_code=400, detail="Country already exists")
-
-    countries[name] = country.population
+def add_country(country: CountryCreate):
+    name = normalize_name(country.name)
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO countries
+            (name, population, capital, region, area_km2, gdp_usd, currency, iso_code, continent, independence_year)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            name, country.population, country.capital, country.region,
+            country.area_km2, country.gdp_usd, country.currency,
+            country.iso_code, country.continent, country.independence_year
+        ))
+        conn.commit()
+    except sqlite3.IntegrityError as e:
+        conn.close()
+        message = str(e).lower()
+        if "name" in message:
+            raise HTTPException(status_code=400, detail="Country already exists")
+        if "iso_code" in message:
+            raise HTTPException(status_code=400, detail="ISO code already exists")
+        raise HTTPException(status_code=400, detail="Database constraint error")
+    conn.close()
     return {"message": f"{name} added successfully"}
 
 
-# ---------------- UPDATE ----------------
 @app.put("/countries/{country_name}")
-def update_country(country_name: str, population: int):
-    name = country_name.strip().title()
+def update_country(country_name: str, update: CountryUpdate):
+    name = normalize_name(country_name)
+    conn = get_connection()
+    cur = conn.cursor()
 
-    if name not in countries:
+    cur.execute("SELECT * FROM countries WHERE name = ?", (name,))
+    if not cur.fetchone():
+        conn.close()
         raise HTTPException(status_code=404, detail="Country not found")
 
-    countries[name] = population
+    # Dynamically compile elements that are explicitly provided
+    update_data = update.dict(exclude_unset=True)
+    if not update_data:
+        conn.close()
+        return {"message": "No fields updated"}
+
+    clauses = [f"{key} = ?" for key in update_data.keys()]
+    values = list(update_data.values())
+    values.append(name)
+
+    sql = f"UPDATE countries SET {', '.join(clauses)} WHERE name = ?"
+    cur.execute(sql, values)
+    conn.commit()
+    conn.close()
     return {"message": f"{name} updated successfully"}
 
 
-# ---------------- DELETE ----------------
 @app.delete("/countries/{country_name}")
 def delete_country(country_name: str):
-    name = country_name.strip().title()
-
-    if name not in countries:
+    name = normalize_name(country_name)
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM countries WHERE name = ?", (name,))
+    if not cur.fetchone():
+        conn.close()
         raise HTTPException(status_code=404, detail="Country not found")
-
-    del countries[name]
+    cur.execute("DELETE FROM countries WHERE name = ?", (name,))
+    conn.commit()
+    conn.close()
     return {"message": f"{name} deleted successfully"}
