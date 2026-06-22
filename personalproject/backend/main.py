@@ -21,11 +21,7 @@ class CountryCreate(BaseModel):
     name: str = Field(..., min_length=1)
     population: int = Field(..., ge=0)
     capital: Optional[str] = None
-    region: Optional[str] = None
-    area_km2: Optional[float] = Field(None, ge=0)
-    gdp_usd: Optional[float] = Field(None, ge=0)
     currency: Optional[str] = None
-    iso_code: Optional[str] = None
     continent: Optional[str] = None
     independence_year: Optional[int] = None
 
@@ -33,11 +29,7 @@ class CountryCreate(BaseModel):
 class CountryUpdate(BaseModel):
     population: Optional[int] = Field(None, ge=0)
     capital: Optional[str] = None
-    region: Optional[str] = None
-    area_km2: Optional[float] = Field(None, ge=0)
-    gdp_usd: Optional[float] = Field(None, ge=0)
     currency: Optional[str] = None
-    iso_code: Optional[str] = None
     continent: Optional[str] = None
     independence_year: Optional[int] = None
 
@@ -87,14 +79,14 @@ def add_country(country: CountryCreate):
     conn = get_connection()
     cur = conn.cursor()
     try:
+        # FIXED: Reduced exact placeholder match counts to 6 elements
         cur.execute("""
             INSERT INTO countries
-            (name, population, capital, region, area_km2, gdp_usd, currency, iso_code, continent, independence_year)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (name, population, capital, currency, continent, independence_year)
+            VALUES (?, ?, ?, ?, ?, ?)
         """, (
-            name, country.population, country.capital, country.region,
-            country.area_km2, country.gdp_usd, country.currency,
-            country.iso_code, country.continent, country.independence_year
+            name, country.population, country.capital,
+            country.currency, country.continent, country.independence_year
         ))
         conn.commit()
     except sqlite3.IntegrityError as e:
@@ -102,8 +94,6 @@ def add_country(country: CountryCreate):
         message = str(e).lower()
         if "name" in message:
             raise HTTPException(status_code=400, detail="Country already exists")
-        if "iso_code" in message:
-            raise HTTPException(status_code=400, detail="ISO code already exists")
         raise HTTPException(status_code=400, detail="Database constraint error")
     conn.close()
     return {"message": f"{name} added successfully"}
@@ -120,7 +110,6 @@ def update_country(country_name: str, update: CountryUpdate):
         conn.close()
         raise HTTPException(status_code=404, detail="Country not found")
 
-    # Dynamically compile elements that are explicitly provided
     update_data = update.dict(exclude_unset=True)
     if not update_data:
         conn.close()

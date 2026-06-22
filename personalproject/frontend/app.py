@@ -73,13 +73,7 @@ with tab_view:
                 with col_left:
                     st.write(f"**Capital:** {c.get('capital') or 'N/A'}")
                     st.write(f"**Continent:** {c.get('continent') or 'N/A'}")
-                    st.write(f"**Region:** {c.get('region') or 'N/A'}")
-                    st.write(f"**ISO Code:** {c.get('iso_code') or 'N/A'}")
                 with col_right:
-                    area = c.get('area_km2')
-                    gdp = c.get('gdp_usd')
-                    st.write(f"**Area:** {f'{area:,} km²' if area else 'N/A'}")
-                    st.write(f"**GDP:** {f'${gdp:,.2f}' if gdp else 'N/A'}")
                     st.write(f"**Currency:** {c.get('currency') or 'N/A'}")
                     st.write(f"**Independence Year:** {c.get('independence_year') or 'N/A'}")
 
@@ -93,13 +87,9 @@ with tab_add:
         col_a, col_b = st.columns(2)
         with col_a:
             a_cap = st.text_input("Capital")
-            a_reg = st.text_input("Region")
-            a_area = st.number_input("Area (km²)", min_value=0.0, value=0.0, step=10.0)
-            a_gdp = st.number_input("GDP (USD)", min_value=0.0, value=0.0, step=1000000.0)
+            a_cont = st.text_input("Continent")
         with col_b:
             a_curr = st.text_input("Currency (e.g., USD, EUR)")
-            a_iso = st.text_input("ISO alpha-3 Code")
-            a_cont = st.text_input("Continent")
             a_ind = st.number_input("Independence Year", min_value=0, max_value=2026, value=0, step=1)
 
         submitted = st.form_submit_button("Commit Entry")
@@ -108,21 +98,25 @@ with tab_add:
                 st.error("Country Name is a mandatory field.")
             else:
                 payload = {
-                    "name": a_name, "population": int(a_pop),
-                    "capital": a_cap or None, "region": a_reg or None,
-                    "area_km2": float(a_area) if a_area > 0 else None,
-                    "gdp_usd": float(a_gdp) if a_gdp > 0 else None,
-                    "currency": a_curr or None, "iso_code": a_iso or None,
-                    "continent": a_cont or None, "independence_year": int(a_ind) if a_ind > 0 else None
+                    "name": a_name,
+                    "population": int(a_pop),
+                    "capital": a_cap or None,
+                    "currency": a_curr or None,
+                    "continent": a_cont or None,
+                    "independence_year": int(a_ind) if a_ind > 0 else None
                 }
                 res, err = safe_request("POST", "/countries", payload)
                 if err:
                     st.error(f"Network error: {err}")
-                elif res.status_code == 200:
-                    st.success(res.json()["message"])
+                elif res.status_code in [200, 201]:
+                    st.success("Country added successfully!")
                     st.rerun()
                 else:
-                    st.error(res.json().get("detail", "Error handling record initialization."))
+                    try:
+                        error_detail = res.json().get("detail", "Error adding country.")
+                    except ValueError:
+                        error_detail = f"Server Error {res.status_code}: {res.text or 'No response body'}"
+                    st.error(error_detail)
 
 # --- TAB 3: EDIT RECORD ---
 with tab_update:
@@ -132,48 +126,43 @@ with tab_update:
     if not country_names:
         st.info("No records available to mutate.")
     else:
-        target_country = st.selectbox("Select Target Country to Update", country_names)
-        # Fetch the historical values to pre-populate or track changes
+        target_country = st.selectbox("Select Target Country to Update", country_names, key="update_select_box")
         current_data = next(item for item in countries_list if item["name"] == target_country)
 
-        st.info(
-            f"Modifying fields for **{target_country}**. Leave inputs blank or at 0 if you do not want to change them.")
+        st.info(f"Modifying fields for **{target_country}**.")
 
         with st.form("update_form"):
-            u_pop = st.number_input("New Population", min_value=0, value=int(current_data['population']), step=1000)
+            u_pop = st.number_input("New Population", min_value=0, value=int(current_data['population']), step=1000, key=f"u_pop_{target_country}")
 
             col_u1, col_u2 = st.columns(2)
             with col_u1:
-                u_cap = st.text_input("Update Capital", value=current_data.get('capital') or "")
-                u_reg = st.text_input("Update Region", value=current_data.get('region') or "")
-                u_area = st.number_input("Update Area (km²)", min_value=0.0,
-                                         value=float(current_data.get('area_km2') or 0.0))
+                u_cap = st.text_input("Update Capital", value=current_data.get('capital') or "", key=f"u_cap_{target_country}")
+                u_cont = st.text_input("Update Continent", value=current_data.get('continent') or "", key=f"u_cont_{target_country}")
             with col_u2:
-                u_gdp = st.number_input("Update GDP (USD)", min_value=0.0,
-                                        value=float(current_data.get('gdp_usd') or 0.0))
-                u_curr = st.text_input("Update Currency", value=current_data.get('currency') or "")
-                u_cont = st.text_input("Update Continent", value=current_data.get('continent') or "")
+                u_curr = st.text_input("Update Currency", value=current_data.get('currency') or "", key=f"u_curr_{target_country}")
+                u_ind = st.number_input("Update Independence Year", min_value=0, max_value=2026, value=int(current_data.get('independence_year') or 0), step=1, key=f"u_ind_{target_country}")
 
             update_submitted = st.form_submit_button("Push Update Payload")
             if update_submitted:
-                # Only include elements targeted for updates
                 payload = {
                     "population": int(u_pop),
                     "capital": u_cap or None,
-                    "region": u_reg or None,
-                    "area_km2": float(u_area) if u_area > 0 else None,
-                    "gdp_usd": float(u_gdp) if u_gdp > 0 else None,
                     "currency": u_curr or None,
-                    "continent": u_cont or None
+                    "continent": u_cont or None,
+                    "independence_year": int(u_ind) if u_ind > 0 else None
                 }
                 res, err = safe_request("PUT", f"/countries/{target_country}", payload)
                 if err:
                     st.error(f"Network error: {err}")
                 elif res.status_code == 200:
-                    st.success(res.json()["message"])
+                    st.success("Country updated successfully!")
                     st.rerun()
                 else:
-                    st.error(res.json().get("detail", "Error compiling structural layout update."))
+                    try:
+                        error_detail = res.json().get("detail", "Error updating country.")
+                    except ValueError:
+                        error_detail = f"Server Error {res.status_code}: {res.text or 'No response body'}"
+                    st.error(error_detail)
 
 # --- TAB 4: REMOVE RECORD ---
 with tab_delete:
@@ -186,7 +175,7 @@ with tab_delete:
         drop_target = st.selectbox("Select Target Country to Purge", country_names, key="delete_box")
         st.warning(f"Warning: This action completely removes **{drop_target}** from the persistent database context.")
 
-        confirm_check = st.checkbox(f"I confirm I want to drop {drop_target}")
+        confirm_check = st.checkbox(f"I confirm I want to drop {drop_target}", key=f"confirm_{drop_target}")
 
         if st.button("Execute Drop Sequence"):
             if confirm_check:
@@ -194,9 +183,13 @@ with tab_delete:
                 if err:
                     st.error(f"Network error: {err}")
                 elif res.status_code == 200:
-                    st.success(res.json()["message"])
+                    st.success("Country deleted successfully!")
                     st.rerun()
                 else:
-                    st.error(res.json().get("detail", "Error resolving extraction call context."))
+                    try:
+                        error_detail = res.json().get("detail", "Error deleting country.")
+                    except ValueError:
+                        error_detail = f"Server Error {res.status_code}: {res.text or 'No response body'}"
+                    st.error(error_detail)
             else:
                 st.error("Please assert safety confirmation checks prior to clearing records.")
