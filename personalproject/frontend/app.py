@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import urllib.parse
 
 API_URL = "http://127.0.0.1:8000"
 st.set_page_config(page_title="Country Intelligence Hub", layout="wide")
@@ -98,11 +99,11 @@ with tab_add:
                 st.error("Country Name is a mandatory field.")
             else:
                 payload = {
-                    "name": a_name,
+                    "name": a_name.strip(),
                     "population": int(a_pop),
-                    "capital": a_cap or None,
-                    "currency": a_curr or None,
-                    "continent": a_cont or None,
+                    "capital": a_cap.strip() if a_cap.strip() else None,
+                    "currency": a_curr.strip() if a_curr.strip() else None,
+                    "continent": a_cont.strip() if a_cont.strip() else None,
                     "independence_year": int(a_ind) if a_ind > 0 else None
                 }
                 res, err = safe_request("POST", "/countries", payload)
@@ -110,7 +111,7 @@ with tab_add:
                     st.error(f"Network error: {err}")
                 elif res.status_code in [200, 201]:
                     st.success("Country added successfully!")
-                    st.rerun()
+                    st.experimental_rerun() if hasattr(st, "experimental_rerun") else st.rerun()
                 else:
                     try:
                         error_detail = res.json().get("detail", "Error adding country.")
@@ -146,17 +147,18 @@ with tab_update:
             if update_submitted:
                 payload = {
                     "population": int(u_pop),
-                    "capital": u_cap or None,
-                    "currency": u_curr or None,
-                    "continent": u_cont or None,
+                    "capital": u_cap.strip() if u_cap.strip() else None,
+                    "currency": u_curr.strip() if u_curr.strip() else None,
+                    "continent": u_cont.strip() if u_cont.strip() else None,
                     "independence_year": int(u_ind) if u_ind > 0 else None
                 }
-                res, err = safe_request("PUT", f"/countries/{target_country}", payload)
+                encoded_name = urllib.parse.quote(target_country)
+                res, err = safe_request("PUT", f"/countries/{encoded_name}", payload)
                 if err:
                     st.error(f"Network error: {err}")
                 elif res.status_code == 200:
                     st.success("Country updated successfully!")
-                    st.rerun()
+                    st.experimental_rerun() if hasattr(st, "experimental_rerun") else st.rerun()
                 else:
                     try:
                         error_detail = res.json().get("detail", "Error updating country.")
@@ -179,12 +181,13 @@ with tab_delete:
 
         if st.button("Execute Drop Sequence"):
             if confirm_check:
-                res, err = safe_request("DELETE", f"/countries/{drop_target}")
+                encoded_name = urllib.parse.quote(drop_target)
+                res, err = safe_request("DELETE", f"/countries/{encoded_name}")
                 if err:
                     st.error(f"Network error: {err}")
                 elif res.status_code == 200:
                     st.success("Country deleted successfully!")
-                    st.rerun()
+                    st.experimental_rerun() if hasattr(st, "experimental_rerun") else st.rerun()
                 else:
                     try:
                         error_detail = res.json().get("detail", "Error deleting country.")
